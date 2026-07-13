@@ -1,0 +1,910 @@
+import React, { useState } from 'react';
+import { getKopSurat } from '../utils/settings';
+import { Receipt, Search, Plus, Filter, Download, Edit, Trash2, X, Save, Printer, AlertTriangle } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+
+const terbilang = (angka: number): string => {
+  const words = [
+    '', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas'
+  ];
+  let res = '';
+  if (angka < 12) res = words[angka];
+  else if (angka < 20) res = terbilang(angka - 10) + ' belas';
+  else if (angka < 100) res = terbilang(Math.floor(angka / 10)) + ' puluh ' + terbilang(angka % 10);
+  else if (angka < 200) res = 'seratus ' + terbilang(angka - 100);
+  else if (angka < 1000) res = terbilang(Math.floor(angka / 100)) + ' ratus ' + terbilang(angka % 100);
+  else if (angka < 2000) res = 'seribu ' + terbilang(angka - 1000);
+  else if (angka < 1000000) res = terbilang(Math.floor(angka / 1000)) + ' ribu ' + terbilang(angka % 1000);
+  else if (angka < 1000000000) res = terbilang(Math.floor(angka / 1000000)) + ' juta ' + terbilang(angka % 1000000);
+  
+  return res.trim().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+};
+
+const kopSurat = getKopSurat();
+const DUMMY_DATA = [
+  {
+    id: 1,
+    noKwitansi: '',
+    tahunAnggaran: '2026',
+    kodeRekening: '',
+    tanggal: '2026-03-03',
+    terimaDari: `Bendahara BOS ${kopSurat?.kopBaris3 || 'SD NEGERI 01 CONTOH'}`,
+    jumlah: 2106300,
+    untukPembayaran: 'Belanja peralatan Instalasi Listrik',
+    penerima: 'SIPlah BliBli',
+    kepsek: {
+      nama: 'NUSDIN, S.Pd',
+      nip: '196808062007011021'
+    },
+    bendahara: {
+      nama: 'CUNARA,S,Pd.I',
+      nip: '198801052019031002'
+    }
+  }
+];
+
+export default function Kwitansi() {
+  const liveNamaKepsek = localStorage.getItem('namaKepsek');
+  const liveNipKepsek = localStorage.getItem('nipKepsek');
+  const liveNamaBendahara = localStorage.getItem('namaBendahara');
+  const liveNipBendahara = localStorage.getItem('nipBendahara');
+
+  const [data, setData] = useState(() => {
+    const saved = localStorage.getItem('kwitansiData');
+    if (saved) return JSON.parse(saved);
+    return DUMMY_DATA;
+  });
+  React.useEffect(() => {
+    localStorage.setItem('kwitansiData', JSON.stringify(data));
+  }, [data]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedData, setSelectedData] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [entries, setEntries] = useState(10);
+
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<any>(null);
+
+  const handleDeleteClick = (item: any) => {
+    setItemToDelete(item);
+    setIsDeleteModalOpen(true);
+  };
+
+
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedIds(data.map((item: any) => item.id));
+    } else {
+      setSelectedIds([]);
+    }
+  };
+  const handleSelect = (id: number) => {
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter(selectedId => selectedId !== id));
+    } else {
+      setSelectedIds([...selectedIds, id]);
+    }
+  };
+  const handleBulkDelete = () => {
+    if (selectedIds.length > 0) {
+      if (window.confirm(`Apakah Anda yakin ingin menghapus ${selectedIds.length} data terpilih?`)) {
+        setData(data.filter((item: any) => !selectedIds.includes(item.id)));
+        setSelectedIds([]);
+      }
+    }
+  };
+  const confirmDelete = () => {
+    if (itemToDelete) {
+      setData(data.filter(d => d.id !== itemToDelete.id));
+      setIsDeleteModalOpen(false);
+      setItemToDelete(null);
+    }
+  };
+
+  const initialFormState = {
+    id: 0,
+    noKwitansi: '',
+    tahunAnggaran: new Date().getFullYear().toString(),
+    kodeRekening: '',
+    tanggal: '',
+    terimaDari: `Bendahara BOS ${kopSurat?.kopBaris3 || 'SD NEGERI 01 CONTOH'}`,
+    jumlah: '',
+    untukPembayaran: '',
+    penerima: '',
+    kepsekNama: localStorage.getItem('namaKepsek') || 'NUSDIN, S.Pd',
+    kepsekNip: localStorage.getItem('nipKepsek') || '196808062007011021',
+    bendaharaNama: localStorage.getItem('namaBendahara') || 'CUNARA,S,Pd.I',
+    bendaharaNip: localStorage.getItem('nipBendahara') || '198801052019031002'
+  };
+  const [formData, setFormData] = useState(initialFormState);
+
+  const [sumberData, setSumberData] = useState('manual');
+  const [sumberOptions, setSumberOptions] = useState<any[]>([]);
+  const [selectedSumberIds, setSelectedSumberIds] = useState<string[]>([]);
+
+  const [pinbukOptions, setPinbukOptions] = useState<string[]>([]);
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pinbukData');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const allPenerima = new Set<string>();
+        parsed.forEach((item: any) => {
+          if (item.lampiran && Array.isArray(item.lampiran)) {
+            item.lampiran.forEach((lamp: any) => {
+              if (lamp.penerima) {
+                allPenerima.add(lamp.penerima);
+              }
+            });
+          }
+        });
+        setPinbukOptions(Array.from(allPenerima));
+      }
+    } catch (e) {
+      console.error('Failed to load pinbukData', e);
+    }
+  }, []);
+
+
+  React.useEffect(() => {
+    if (sumberData === 'manual') {
+      setSumberOptions([]);
+      setSelectedSumberIds([]);
+      return;
+    }
+
+    let dataToLoad = [];
+    try {
+      if (sumberData === 'bku' || sumberData === 'bku_group') {
+        const saved = localStorage.getItem('bkuData');
+        if (saved) {
+          const rawData = JSON.parse(saved);
+          if (sumberData === 'bku_group') {
+            const grouped = rawData.reduce((acc: any, curr: any) => {
+              const key = curr.noBukti;
+              if (!key) return acc;
+              if (!acc[key]) {
+                acc[key] = {
+                   id: key,
+                   tanggal: curr.tanggal,
+                   noBukti: key,
+                   belanja: curr.belanja,
+                   uraian: curr.uraian,
+                   jumlah: Number(curr.jumlah) || 0
+                };
+              } else {
+                acc[key].jumlah += (Number(curr.jumlah) || 0);
+                if (curr.uraian && !acc[key].uraian.includes(curr.uraian)) {
+                  acc[key].uraian += ', ' + curr.uraian;
+                }
+              }
+              return acc;
+            }, {});
+            dataToLoad = Object.values(grouped);
+          } else {
+            dataToLoad = rawData;
+          }
+        }
+      } else if (sumberData === 'bph') {
+        const saved = localStorage.getItem('bphData');
+        if (saved) dataToLoad = JSON.parse(saved);
+      } else if (sumberData === 'belanja') {
+        const saved = localStorage.getItem('belanjaData');
+        if (saved) dataToLoad = JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error('Failed to load data for', sumberData);
+    }
+    setSumberOptions(dataToLoad);
+    setSelectedSumberIds([]);
+  }, [sumberData]);
+
+
+  const handleToggleSumber = (id: string, checked: boolean) => {
+    let newSelected = [...selectedSumberIds];
+    if (checked) {
+      newSelected.push(String(id));
+    } else {
+      newSelected = newSelected.filter(s => s !== String(id));
+    }
+    setSelectedSumberIds(newSelected);
+
+    if (newSelected.length === 0) {
+      setFormData(prev => ({ ...prev, jumlah: '', untukPembayaran: '', kodeRekening: '' }));
+      return;
+    }
+
+    let totalJumlah = 0;
+    let kodeRekList: string[] = [];
+    let uraianList: string[] = [];
+    let tanggal = '';
+
+    newSelected.forEach(selId => {
+      const item = sumberOptions.find((d: any) => String(d.id) === selId);
+      if (item) {
+        if (!tanggal) tanggal = item.tanggal;
+        
+        let jumlah = 0;
+        let kodeRek = '';
+        let uraian = item.uraian || '';
+
+        if (sumberData === 'bku' || sumberData === 'bku_group') {
+          jumlah = Number(item.jumlah) || 0;
+          kodeRek = item.belanja || '';
+        } else if (sumberData === 'bph' || sumberData === 'belanja') {
+          jumlah = (Number(item.jumlahBarang) || 0) * (Number(item.hargaSatuan) || 0);
+          kodeRek = item.kodeRekening || item.belanja || '';
+        }
+
+        totalJumlah += jumlah;
+        if (kodeRek && !kodeRekList.includes(kodeRek)) kodeRekList.push(kodeRek);
+        if (uraian && !uraianList.includes(uraian)) uraianList.push(uraian);
+      }
+    });
+
+    setFormData(prev => ({
+      ...prev,
+      tanggal: tanggal || prev.tanggal,
+      kodeRekening: kodeRekList.join(', '),
+      jumlah: totalJumlah ? String(totalJumlah) : prev.jumlah,
+      untukPembayaran: uraianList.join(', ')
+    }));
+  };
+
+
+  const handleOpenAdd = () => {
+    setFormData({
+      id: 0,
+      noKwitansi: '',
+      tahunAnggaran: new Date().getFullYear().toString(),
+      kodeRekening: '',
+      tanggal: '',
+      terimaDari: `Bendahara BOS ${kopSurat?.kopBaris3 || 'SD NEGERI 01 CONTOH'}`,
+      jumlah: '',
+      untukPembayaran: '',
+      penerima: '',
+      kepsekNama: localStorage.getItem('namaKepsek') || 'NUSDIN, S.Pd',
+      kepsekNip: localStorage.getItem('nipKepsek') || '196808062007011021',
+      bendaharaNama: localStorage.getItem('namaBendahara') || 'CUNARA,S,Pd.I',
+      bendaharaNip: localStorage.getItem('nipBendahara') || '198801052019031002'
+    });
+    setIsEditing(false);
+    setIsModalOpen(true);
+  };
+
+  const handleEdit = (item: any) => {
+    setFormData({
+      id: item.id,
+      noKwitansi: item.noKwitansi || '',
+      tahunAnggaran: item.tahunAnggaran || '',
+      kodeRekening: item.kodeRekening || '',
+      tanggal: item.tanggal,
+      terimaDari: item.terimaDari,
+      jumlah: item.jumlah.toString(),
+      untukPembayaran: item.untukPembayaran,
+      penerima: item.penerima || '',
+      kepsekNama: item.kepsek?.nama || '',
+      kepsekNip: item.kepsek?.nip || '',
+      bendaharaNama: item.bendahara?.nama || '',
+      bendaharaNip: item.bendahara?.nip || ''
+    });
+    setIsEditing(true);
+    setIsModalOpen(true);
+  };
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newItem = {
+      id: isEditing ? formData.id : Date.now(),
+      noKwitansi: formData.noKwitansi,
+      tahunAnggaran: formData.tahunAnggaran,
+      kodeRekening: formData.kodeRekening,
+      tanggal: formData.tanggal,
+      terimaDari: formData.terimaDari,
+      jumlah: Number(formData.jumlah),
+      untukPembayaran: formData.untukPembayaran,
+      penerima: formData.penerima,
+      kepsek: {
+        nama: formData.kepsekNama,
+        nip: formData.kepsekNip
+      },
+      bendahara: {
+        nama: formData.bendaharaNama,
+        nip: formData.bendaharaNip
+      }
+    };
+
+    if (isEditing) {
+      setData(data.map(d => d.id === formData.id ? newItem : d));
+    } else {
+      setData([newItem, ...data]);
+    }
+    setIsModalOpen(false);
+  };
+
+  const handleDelete = (id: number) => {
+    setData(data.filter(d => d.id !== id));
+  };
+
+  const handlePreview = (item: any) => {
+    setSelectedData(item);
+    setIsPreviewOpen(true);
+  };
+
+  const printDocument = () => {
+    window.print();
+  };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const d = new Date(dateString);
+    return `${d.getDate().toString().padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  };
+
+  return (
+    <div className="w-full h-full flex flex-col space-y-6 relative">
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          #print-document, #print-document * {
+            visibility: visible;
+            color: black !important;
+          }
+          #print-document {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            background: white !important;
+          }
+          @page {
+            size: A4 portrait;
+            margin: 1cm;
+          }
+          ::-webkit-scrollbar {
+            display: none;
+          }
+        }
+      `}} />
+
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-white flex items-center gap-2">
+            <Receipt className="w-6 h-6 text-blue-400" />
+            Kwitansi
+          </h1>
+          <p className="text-slate-400 text-sm mt-1">Kelola pembuatan dan pencetakan kwitansi pembayaran.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleOpenAdd}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-blue-500/20"
+          >
+            <Plus className="w-4 h-4" /> Buat Kwitansi
+          </button>
+
+            {selectedIds.length > 0 && (
+              <button 
+                onClick={handleBulkDelete}
+                className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-sm font-medium rounded-xl transition-all"
+              >
+                <Trash2 className="w-4 h-4" />
+                Hapus Terpilih
+              </button>
+            )}
+            
+        </div>
+      </div>
+
+      {/* Table Actions */}
+      <div className="flex flex-col sm:flex-row justify-between items-end gap-4 bg-white/5 p-4 rounded-xl border border-white/10 print:hidden">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-400">Show</span>
+          <select 
+            value={entries} 
+            onChange={(e) => setEntries(Number(e.target.value))}
+            className="bg-black/20 border border-white/10 rounded-md px-3 py-1.5 text-white focus:outline-none focus:border-blue-500 text-sm"
+          >
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+          <span className="text-sm text-slate-400">entries</span>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Cari kwitansi..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-black/20 border border-white/10 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="flex-1 overflow-auto bg-white/5 border border-white/10 rounded-2xl custom-scrollbar relative print:hidden">
+        <table className="w-full text-sm text-left whitespace-nowrap">
+          <thead className="text-xs text-slate-400 uppercase bg-black/20 sticky top-0 z-10">
+            <tr>
+              <th className="px-6 py-4 font-medium w-12 text-center rounded-tl-2xl">
+                <input 
+                  type="checkbox" 
+                  className="rounded border-slate-600 bg-slate-800" 
+                  checked={data.length > 0 && selectedIds.length === data.length}
+                  onChange={handleSelectAll}
+                />
+              </th>
+              <th className="px-6 py-4 font-medium rounded-tl-2xl">Tanggal</th>
+              <th className="px-6 py-4 font-medium">Terima Dari</th>
+              <th className="px-6 py-4 font-medium">Untuk Pembayaran</th>
+              <th className="px-6 py-4 font-medium text-right">Jumlah (Rp)</th>
+              <th className="px-6 py-4 font-medium text-center rounded-tr-2xl">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {data.map((item) => (
+              <tr key={item.id} className="hover:bg-white/5 transition-colors">
+                    <td className="px-6 py-4 text-center">
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-slate-600 bg-slate-800" 
+                        checked={selectedIds.includes(item.id)}
+                        onChange={() => handleSelect(item.id)}
+                      />
+                    </td>
+                <td className="px-6 py-4">
+                  <div className="font-medium text-white">{new Date(item.tanggal).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                </td>
+                <td className="px-6 py-4 text-slate-300">
+                  {item.terimaDari}
+                </td>
+                <td className="px-6 py-4 text-slate-300">
+                  <div className="max-w-xs truncate" title={item.untukPembayaran}>{item.untukPembayaran}</div>
+                </td>
+                <td className="px-6 py-4 text-right font-medium text-emerald-400">
+                  {item.jumlah.toLocaleString('id-ID')}
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex items-center justify-center gap-2">
+                    <button 
+                      onClick={() => handlePreview(item)}
+                      className="p-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-lg transition-colors" title="Cetak"
+                    >
+                      <Printer className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => handleEdit(item)}
+                      className="p-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg transition-colors" title="Edit"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteClick(item)}
+                      className="p-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors" title="Hapus"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {data.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                  Belum ada data kwitansi.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modal Form */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 print:hidden">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsModalOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-[#0f172a] border border-white/10 w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col overflow-hidden relative z-10"
+            >
+              <div className="flex items-center justify-between p-4 md:p-6 border-b border-white/10 shrink-0 bg-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                    <Receipt className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">{isEditing ? 'Edit Kwitansi' : 'Buat Kwitansi Baru'}</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Form input data kwitansi</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 md:p-6 custom-scrollbar max-h-[70vh] overflow-y-auto">
+                <form className="space-y-6" onSubmit={handleSave}>
+
+                  <div className="bg-slate-800/50 border border-blue-500/30 rounded-xl p-4 mb-6">
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <div className="flex-1 space-y-1.5">
+                        <label className="text-sm font-medium text-slate-300">Ambil Data Dari</label>
+                        <select 
+                          value={sumberData} 
+                          onChange={(e) => setSumberData(e.target.value)}
+                          className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 appearance-none"
+                        >
+                          <option value="manual">Input Manual</option>
+                          <option value="bku">BKU ARKAS</option>
+                          <option value="bku_group">BKU ARKAS (Grup No. Bukti)</option>
+                          <option value="bph">BPH (Persediaan)</option>
+                          <option value="belanja">Belanja Modal</option>
+                        </select>
+                      </div>
+                      
+                      {sumberData !== 'manual' && (
+                        <div className="flex-1 space-y-1.5">
+                          <label className="text-sm font-medium text-slate-300">Pilih Transaksi (Bisa lebih dari satu)</label>
+                          <div className="w-full bg-black/20 border border-white/10 rounded-lg p-2 text-white max-h-48 overflow-y-auto space-y-2 custom-scrollbar">
+                            {sumberOptions.length === 0 && <div className="text-slate-400 p-2 text-sm">Tidak ada data</div>}
+                            {sumberOptions.map((opt: any) => {
+                              const amount = (sumberData === 'bku' || sumberData === 'bku_group') 
+                                ? opt.jumlah 
+                                : ((Number(opt.jumlahBarang) || 0) * (Number(opt.hargaSatuan) || 0));
+                              const isChecked = selectedSumberIds.includes(String(opt.id));
+                              return (
+                                <label key={opt.id} className="flex items-start gap-3 p-2 hover:bg-white/5 rounded-lg cursor-pointer border border-transparent hover:border-white/5 transition-all">
+                                  <input 
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => handleToggleSumber(String(opt.id), e.target.checked)}
+                                    className="mt-1 w-4 h-4 rounded border-slate-600 text-blue-600 focus:ring-blue-500 bg-black/50"
+                                  />
+                                  <div className="flex-1 min-w-0 text-sm">
+                                    <div className="font-medium text-slate-200">
+                                      {opt.tanggal} - {opt.uraian?.substring(0, 50)}{opt.uraian?.length > 50 ? '...' : ''}
+                                    </div>
+                                    <div className="text-blue-400 font-medium">Rp {amount?.toLocaleString('id-ID')}</div>
+                                    {opt.noBukti && <div className="text-slate-500 text-xs mt-0.5">No Bukti: {opt.noBukti}</div>}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-slate-300">No. Kwitansi</label>
+                      <input type="text" value={formData.noKwitansi} onChange={e => setFormData({...formData, noKwitansi: e.target.value})} className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-slate-300">Tahun Anggaran</label>
+                      <input type="text" value={formData.tahunAnggaran} onChange={e => setFormData({...formData, tahunAnggaran: e.target.value})} className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-slate-300">Kode Rekening</label>
+                      <input type="text" value={formData.kodeRekening} onChange={e => setFormData({...formData, kodeRekening: e.target.value})} className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-slate-300">Tanggal Transaksi</label>
+                      <input type="date" required value={formData.tanggal} onChange={e => setFormData({...formData, tanggal: e.target.value})} className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 [color-scheme:dark]" />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-300">Sudah Terima Dari</label>
+                    <input type="text" required value={formData.terimaDari} onChange={e => setFormData({...formData, terimaDari: e.target.value})} className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500" />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-300">Jumlah Uang (Rp)</label>
+                    <input type="number" required value={formData.jumlah} onChange={e => setFormData({...formData, jumlah: e.target.value})} className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500" />
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-300">Terbilang (Otomatis)</label>
+                    <textarea rows={2} readOnly value={formData.jumlah ? terbilang(Number(formData.jumlah)) + ' rupiah' : ''} className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-slate-300 focus:outline-none resize-none italic"></textarea>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-slate-300">Untuk Pembayaran</label>
+                    <textarea rows={2} required value={formData.untukPembayaran} onChange={e => setFormData({...formData, untukPembayaran: e.target.value})} className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 resize-none"></textarea>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                    <div className="space-y-4">
+<h3 className="text-sm font-medium text-white border-b border-white/10 pb-2">Penanda Tangan</h3>
+                      <div className="space-y-1.5">
+                        <label className="text-xs text-slate-400 flex items-center justify-between">
+                          <span>Penerima Uang (Kanan)</span>
+                          {pinbukOptions.length > 0 && (
+                            <select 
+                              className="bg-black/20 border border-white/10 rounded px-2 py-0.5 text-xs text-blue-400 focus:outline-none focus:border-blue-500"
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  setFormData({...formData, penerima: e.target.value});
+                                  e.target.value = "";
+                                }
+                              }}
+                            >
+                              <option value="">-- Pilih dari Pinbuk --</option>
+                              {pinbukOptions.map((opt, i) => (
+                                <option key={i} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          )}
+                        </label>
+                        <input type="text" value={formData.penerima} onChange={e => setFormData({...formData, penerima: e.target.value})} placeholder="Contoh: SIPlah BliBli" className="w-full bg-black/20 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 text-sm" />
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              <div className="p-4 md:p-6 border-t border-white/10 bg-white/5 shrink-0 flex items-center justify-end gap-3">
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  Batal
+                </button>
+                <button 
+                  onClick={handleSave}
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-blue-500/20"
+                >
+                  <Save className="w-4 h-4" /> Simpan Data
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal Print Preview */}
+      <AnimatePresence>
+        {isPreviewOpen && selectedData && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 print:hidden">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsPreviewOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-[#0f172a] border border-white/10 w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col relative z-10 max-h-[90vh]"
+            >
+              <div className="flex items-center justify-between p-4 md:p-6 border-b border-white/10 bg-white/5 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                    <Printer className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">Preview Kwitansi</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Dokumen siap cetak</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsPreviewOpen(false)}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Preview Area (Scrollable) */}
+              <div className="flex-1 overflow-y-auto bg-slate-800 p-8 flex justify-center custom-scrollbar">
+                
+                {/* A4 Paper Container for View Only (Not Print) - Landscape like shape */}
+                <div className="bg-white text-black font-sans shadow-2xl relative" style={{ width: '210mm', minHeight: '148mm' }}>
+                  
+                  {/* --- DOCUMENT CONTENT --- */}
+                  <div id="print-document" className="w-full p-8 box-border text-[13px] bg-white text-black font-sans font-medium">
+                    
+                    <div className="border border-black p-6 relative">
+                      
+                      {/* Top Header */}
+                      <div className="flex justify-between items-start mb-6">
+                        <div className="flex-1 text-center">
+                          <h1 className="text-2xl font-bold tracking-[0.3em] uppercase ml-24 mt-2">K W I T A N S I</h1>
+                        </div>
+                        <div className="w-64 space-y-1">
+                          <div className="flex">
+                            <span className="w-32">No.</span>
+                            <span className="flex-1 border-b border-black">{selectedData.noKwitansi}</span>
+                          </div>
+                          <div className="flex">
+                            <span className="w-32">Tahun Anggaran</span>
+                            <span className="flex-1 border-b border-black text-center">{selectedData.tahunAnggaran}</span>
+                          </div>
+                          <div className="flex">
+                            <span className="w-32">Kode Rekening</span>
+                            <span className="flex-1 border-b border-black">{selectedData.kodeRekening}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Content Rows */}
+                      <div className="space-y-4 mb-8">
+                        <div className="flex items-end">
+                          <div className="w-48 pb-1 font-bold">Sudah Terima Dari</div>
+                          <div className="w-4 pb-1 text-center">:</div>
+                          <div className="flex-1 border-b-2 border-black pb-1 font-bold px-2">{selectedData.terimaDari}</div>
+                        </div>
+
+                        <div className="flex items-center">
+                          <div className="w-48 font-bold">Banyaknya Uang</div>
+                          <div className="w-4 text-center">:</div>
+                          <div className="flex-1 relative h-10 flex items-center px-4 overflow-hidden">
+                            {/* SVG Parallelogram Border */}
+                            <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
+                              <polygon points="0,100 97,100 100,0 3,0" fill="none" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                            </svg>
+                            <span className="relative z-10 font-bold italic">{terbilang(selectedData.jumlah)} rupiah</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-end">
+                          <div className="w-48 pb-1 font-bold">Untuk Pembayaran</div>
+                          <div className="w-4 pb-1 text-center">:</div>
+                          <div className="flex-1 border-b-2 border-black pb-1 px-2 italic">{selectedData.untukPembayaran}</div>
+                        </div>
+                      </div>
+
+                      {/* Terbilang & Signatures */}
+                      <div className="mt-8 flex justify-between items-start">
+                        {/* Terbilang Amount */}
+                        <div className="w-80">
+                          <div className="flex">
+                            <div className="w-24 font-bold flex items-center justify-center">Terbilang</div>
+                            <div className="relative flex-1 h-10 flex items-center">
+                              {/* SVG Parallelogram Border */}
+                              <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100">
+                                <polygon points="0,100 97,100 100,0 3,0" fill="none" stroke="black" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                              </svg>
+                              <div className="relative z-10 flex w-full">
+                                <span className="w-12 text-center">:</span>
+                                <span className="w-10">Rp</span>
+                                <span className="flex-1 pr-4 tracking-widest">{selectedData.jumlah.toLocaleString('id-ID')}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Signatures */}
+                      <div className="mt-6 flex justify-between items-start text-center">
+                        <div className="w-64 pt-6">
+                          <p>Setuju dibayar</p>
+                          <p>Kepala Sekolah</p>
+                          <div className="h-16"></div>
+                          <p className="font-bold border-b border-black inline-block min-w-[200px] px-2">{liveNamaKepsek || selectedData.kepsek?.nama}</p>
+                          <p>NIP. {liveNipKepsek || selectedData.kepsek?.nip}</p>
+                        </div>
+                        <div className="w-64">
+                          <p>Lunas Dibayar</p>
+                          <p>{formatDate(selectedData.tanggal)}</p>
+                          <p>Bendahara BOS</p>
+                          <div className="h-16"></div>
+                          <p className="font-bold border-b border-black inline-block min-w-[200px] px-2">{liveNamaBendahara || selectedData.bendahara?.nama}</p>
+                          <p>NIP. {liveNipBendahara || selectedData.bendahara?.nip}</p>
+                        </div>
+                        <div className="w-64 pt-6">
+                          <p>Diterima Oleh</p>
+                          <div className="h-20"></div>
+                          <p className="font-bold border-b border-black inline-block min-w-[200px] px-2">{selectedData.penerima}</p>
+                        </div>
+                      </div>
+
+                    </div>
+
+                  </div>
+                  {/* --- END DOCUMENT CONTENT --- */}
+
+                </div>
+              </div>
+
+              <div className="p-4 md:p-6 border-t border-white/10 bg-white/5 shrink-0 flex items-center justify-end gap-3">
+                <button 
+                  onClick={() => setIsPreviewOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  Tutup
+                </button>
+                <button 
+                  onClick={printDocument}
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-blue-500/20"
+                >
+                  <Printer className="w-4 h-4" /> Cetak (Print)
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+    {/* Modal Hapus */}
+      <AnimatePresence>
+        {isDeleteModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsDeleteModalOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-[#0f172a] border border-white/10 w-full max-w-md rounded-2xl shadow-2xl relative z-10 overflow-hidden"
+            >
+              <div className="p-6">
+                <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mb-4 mx-auto">
+                  <AlertTriangle className="w-6 h-6 text-red-500" />
+                </div>
+                <h3 className="text-xl font-semibold text-white text-center mb-2">Hapus Kwitansi</h3>
+                <p className="text-slate-400 text-center text-sm mb-6">
+                  Apakah Anda yakin ingin menghapus kwitansi ini? Tindakan ini tidak dapat dibatalkan.
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setIsDeleteModalOpen(false)}
+                    className="flex-1 py-2.5 text-sm font-medium text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={confirmDelete}
+                    className="flex-1 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-lg shadow-red-500/20"
+                  >
+                    Ya, Hapus
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+    </div>
+  );
+}

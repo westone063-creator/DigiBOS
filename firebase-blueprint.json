@@ -1,0 +1,24 @@
+{
+  "entities": {
+    "LocalStorageItem": {
+      "title": "Local Storage Item",
+      "description": "A key-value pair synced from local storage.",
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "description": "The stringified value from local storage."
+        }
+      },
+      "required": ["value"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/localStorageSync/{keyId}": {
+      "schema": {
+        "$ref": "#/entities/LocalStorageItem"
+      },
+      "description": "User-specific local storage sync collection."
+    }
+  }
+}
